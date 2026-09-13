@@ -38,8 +38,9 @@ jobs:
 
       - name: Run sign task
         env:
-          TG_API_ID: ${{ secrets.TG_API_ID }}
-          TG_API_HASH: ${{ secrets.TG_API_HASH }}
+          # 不建这两个 secret 时自动回退到 tg-signer 内置默认值（与本地 login 所用一致）
+          TG_API_ID: ${{ secrets.TG_API_ID || '611335' }}
+          TG_API_HASH: ${{ secrets.TG_API_HASH || 'd524b414d21f4d37f08684c1df41ac9c' }}
           TG_SESSION_STRING: ${{ secrets.TG_SESSION_STRING }}
         # stdout 会打印登录时获取的最近对话列表（涉及隐私），丢弃；
         # 运行日志走 stderr，正常保留在 Actions 日志中
