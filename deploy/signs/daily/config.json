@@ -1,0 +1,47 @@
+{
+  "chats": [
+    {
+      "chat_id": "@Xray_E_Bot",
+      "name": "Xray_E_Bot",
+      "delete_after": null,
+      "actions": [
+        {
+          "action": 1,
+          "text": "/qd"
+        }
+      ],
+      "action_interval": 1
+    },
+    {
+      "chat_id": "@xhgsgk_bot",
+      "name": "xhgsgk_bot",
+      "delete_after": null,
+      "actions": [
+        {
+          "action": 1,
+          "text": "/qd"
+        }
+      ],
+      "action_interval": 1
+    },
+    {
+      "chat_id": "@NanoAir_bot",
+      "name": "NanoAir_bot",
+      "delete_after": null,
+      "actions": [
+        {
+          "action": 1,
+          "text": "/start"
+        },
+        {
+          "action": 3,
+          "text": "获取流量"
+        }
+      ],
+      "action_interval": 1
+    }
+  ],
+  "sign_at": "08:30:00",
+  "random_seconds": 0,
+  "sign_interval": 2
+}

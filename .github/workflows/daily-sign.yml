@@ -1,0 +1,47 @@
+name: Daily Sign
+
+on:
+  schedule:
+    # UTC 00:30 = 北京时间 08:30（GitHub Actions 的 cron 使用 UTC，触发可能有几分钟延迟）
+    - cron: "30 0 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: daily-sign
+  cancel-in-progress: false
+
+jobs:
+  sign:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install tg-signer
+        run: |
+          python -m pip install --upgrade pip
+          pip install .
+
+      - name: Prepare sign task config
+        run: |
+          mkdir -p .signer/signs/daily
+          cp deploy/signs/daily/config.json .signer/signs/daily/config.json
+
+      - name: Run sign task
+        env:
+          TG_API_ID: ${{ secrets.TG_API_ID }}
+          TG_API_HASH: ${{ secrets.TG_API_HASH }}
+          TG_SESSION_STRING: ${{ secrets.TG_SESSION_STRING }}
+        # stdout 会打印登录时获取的最近对话列表（涉及隐私），丢弃；
+        # 运行日志走 stderr，正常保留在 Actions 日志中
+        run: |
+          tg-signer run-once daily > /dev/null
