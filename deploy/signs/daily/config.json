@@ -23,22 +23,6 @@
         }
       ],
       "action_interval": 1
-    },
-    {
-      "chat_id": "@NanoAir_bot",
-      "name": "NanoAir_bot",
-      "delete_after": null,
-      "actions": [
-        {
-          "action": 1,
-          "text": "/start"
-        },
-        {
-          "action": 3,
-          "text": "获取流量"
-        }
-      ],
-      "action_interval": 1
     }
   ],
   "sign_at": "08:30:00",
