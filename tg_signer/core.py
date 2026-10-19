@@ -1365,7 +1365,16 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
                     _normalize_option_text(btn.text): btn for btn in buttons
                 }
 
-            async def get_answer_via_llm() -> str:
+            async def get_answer_via_llm() -> Optional[str]:
+                # 签到运行中不进入交互式配置；未配置大模型时直接跳过本题
+                cfg = OpenAIConfigManager(self.workdir).load_config()
+                if not cfg:
+                    self.log(
+                        "本地无法解析该题，且未配置大模型"
+                        "（环境变量 OPENAI_API_KEY 或 tg-signer llm-config），跳过答题",
+                        level="WARNING",
+                    )
+                    return None
                 self.log("本地计算不可用，回退到调用大模型进行计算题回答")
                 query = text
                 if option_to_btn:
@@ -1375,7 +1384,7 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
                         f"可选答案：{json.dumps(options, ensure_ascii=False)}\n"
                         "请只从可选答案中选择最匹配的一项，并原样回复该选项文本。"
                     )
-                answer = await self.get_ai_tools().calculate_problem(query)
+                answer = await AITools(cfg).calculate_problem(query)
                 self.log(f"回答为: {answer}")
                 return answer.strip()
 
@@ -1383,11 +1392,17 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
             answer = _solve_arithmetic(text)
             if answer is not None:
                 self.log(f"本地计算回答为: {answer}")
-                if option_to_btn and _normalize_option_text(answer) not in option_to_btn:
+                if (
+                    option_to_btn
+                    and _normalize_option_text(answer) not in option_to_btn
+                ):
                     # 本地结果与选项对不上，改用大模型按选项原文选择
                     answer = await get_answer_via_llm()
             else:
                 answer = await get_answer_via_llm()
+
+            if not answer:
+                return False
 
             if option_to_btn:
                 target_btn = option_to_btn.get(_normalize_option_text(answer))

@@ -353,9 +353,9 @@ class SignChatV3(BaseJSONConfig):
 
     @property
     def requires_ai(self) -> bool:
+        # REPLY_BY_CALCULATION_PROBLEM 支持本地算式作答，大模型仅为回退，无需预置配置
         ai_actions = {
             SupportAction.CHOOSE_OPTION_BY_IMAGE,
-            SupportAction.REPLY_BY_CALCULATION_PROBLEM,
         }
         return any(action.action in ai_actions for action in self.actions)
 

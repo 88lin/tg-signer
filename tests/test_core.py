@@ -1004,11 +1004,19 @@ async def test_solve_arithmetic_local():
 @pytest.mark.asyncio
 async def test_reply_by_calculation_problem_falls_back_to_llm_when_local_answer_mismatches_buttons(
     signer_factory,
+    monkeypatch,
 ):
     """本地算出的答案不在按钮选项里时，回退到大模型按选项原文选择。"""
+    import tg_signer.core as core_module
+
     signer = signer_factory()
     ai_tools = SimpleNamespace(calculate_problem=AsyncMock(return_value="8 ✅"))
-    signer.get_ai_tools = lambda: ai_tools
+    monkeypatch.setattr(
+        core_module, "OpenAIConfigManager", lambda workdir: SimpleNamespace(
+            load_config=lambda: {"api_key": "test-key"}
+        )
+    )
+    monkeypatch.setattr(core_module, "AITools", lambda cfg: ai_tools)
     signer.request_callback_answer = AsyncMock(return_value=None)
     signer.send_message = AsyncMock(return_value=None)
     message = SimpleNamespace(
@@ -1040,6 +1048,40 @@ async def test_reply_by_calculation_problem_falls_back_to_llm_when_local_answer_
         99,
         "answer:8",
     )
+
+
+@pytest.mark.asyncio
+async def test_reply_by_calculation_problem_skips_when_no_llm_config(
+    signer_factory,
+    monkeypatch,
+):
+    """本地无法解析且未配置大模型时，应跳过答题而不是进入交互式配置。"""
+    import tg_signer.core as core_module
+
+    signer = signer_factory()
+    monkeypatch.setattr(
+        core_module, "OpenAIConfigManager", lambda workdir: SimpleNamespace(
+            load_config=lambda: None
+        )
+    )
+    signer.request_callback_answer = AsyncMock(return_value=None)
+    signer.send_message = AsyncMock(return_value=None)
+    message = SimpleNamespace(
+        id=99,
+        text="请问今天星期几？",
+        chat=SimpleNamespace(id=123),
+        message_thread_id=1,
+        reply_markup=None,
+    )
+
+    ok = await signer._reply_by_calculation_problem(
+        ReplyByCalculationProblemAction(),
+        message,
+    )
+
+    assert ok is False
+    signer.request_callback_answer.assert_not_awaited()
+    signer.send_message.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -1087,10 +1129,18 @@ async def test_reply_by_calculation_problem_clicks_caption_inline_answer(
 @pytest.mark.asyncio
 async def test_reply_by_calculation_problem_clicks_non_numeric_inline_answer(
     signer_factory,
+    monkeypatch,
 ):
+    import tg_signer.core as core_module
+
     signer = signer_factory()
     ai_tools = SimpleNamespace(calculate_problem=AsyncMock(return_value="选项B"))
-    signer.get_ai_tools = lambda: ai_tools
+    monkeypatch.setattr(
+        core_module, "OpenAIConfigManager", lambda workdir: SimpleNamespace(
+            load_config=lambda: {"api_key": "test-key"}
+        )
+    )
+    monkeypatch.setattr(core_module, "AITools", lambda cfg: ai_tools)
     signer.request_callback_answer = AsyncMock(return_value=None)
     signer.send_message = AsyncMock(return_value=None)
     message = SimpleNamespace(
