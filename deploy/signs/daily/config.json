@@ -20,6 +20,9 @@
         {
           "action": 1,
           "text": "/qd"
+        },
+        {
+          "action": 5
         }
       ],
       "action_interval": 1

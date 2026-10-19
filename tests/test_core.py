@@ -1042,6 +1042,7 @@ async def test_reply_by_calculation_problem_falls_back_to_llm_when_local_answer_
     )
 
 
+@pytest.mark.asyncio
 async def test_reply_by_calculation_problem_clicks_caption_inline_answer(
     signer_factory,
 ):
