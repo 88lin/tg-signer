@@ -4,6 +4,7 @@ import logging
 import os
 import pathlib
 import random
+import re
 import time
 from collections import Counter, defaultdict
 from datetime import datetime, timedelta
@@ -111,6 +112,33 @@ def _get_message_text(message: Message) -> str:
 
 def _normalize_option_text(text: str) -> str:
     return "".join(text.split())
+
+
+_ARITHMETIC_RE = re.compile(r"(\d+)\s*([+\-×x*÷/])\s*(\d+)")
+
+
+def _solve_arithmetic(text: str) -> Optional[str]:
+    """从文本中提取简单四则算式并本地计算，如 '87+45=?' -> '132'。"""
+    m = _ARITHMETIC_RE.search(text)
+    if not m:
+        return None
+    a, op, b = int(m.group(1)), m.group(2), int(m.group(3))
+    try:
+        if op == "+":
+            result = a + b
+        elif op == "-":
+            result = a - b
+        elif op in ("×", "x", "*"):
+            result = a * b
+        else:  # ÷ /
+            if b == 0:
+                return None
+            result = a // b if a % b == 0 else a / b
+    except (ValueError, ZeroDivisionError):
+        return None
+    if isinstance(result, float):
+        return None
+    return str(result)
 
 
 def _get_inline_keyboard_buttons(message: Message) -> list[InlineKeyboardButton]:
@@ -1328,7 +1356,7 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
     ):
         text = _get_message_text(message)
         if text:
-            self.log("检测到文本回复，尝试调用大模型进行计算题回答")
+            self.log("检测到文本回复，尝试回答计算题")
             self.log(f"问题: \n{text}")
             option_to_btn = {}
             buttons = _get_inline_keyboard_buttons(message)
@@ -1336,17 +1364,31 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
                 option_to_btn = {
                     _normalize_option_text(btn.text): btn for btn in buttons
                 }
-            query = text
-            if option_to_btn:
-                options = [btn.text for btn in option_to_btn.values()]
-                query = (
-                    f"{text}\n\n"
-                    f"可选答案：{json.dumps(options, ensure_ascii=False)}\n"
-                    "请只从可选答案中选择最匹配的一项，并原样回复该选项文本。"
-                )
-            answer = await self.get_ai_tools().calculate_problem(query)
-            answer = answer.strip()
-            self.log(f"回答为: {answer}")
+
+            async def get_answer_via_llm() -> str:
+                self.log("本地计算不可用，回退到调用大模型进行计算题回答")
+                query = text
+                if option_to_btn:
+                    options = [btn.text for btn in option_to_btn.values()]
+                    query = (
+                        f"{text}\n\n"
+                        f"可选答案：{json.dumps(options, ensure_ascii=False)}\n"
+                        "请只从可选答案中选择最匹配的一项，并原样回复该选项文本。"
+                    )
+                answer = await self.get_ai_tools().calculate_problem(query)
+                self.log(f"回答为: {answer}")
+                return answer.strip()
+
+            # 优先本地解析算式，不依赖大模型
+            answer = _solve_arithmetic(text)
+            if answer is not None:
+                self.log(f"本地计算回答为: {answer}")
+                if option_to_btn and _normalize_option_text(answer) not in option_to_btn:
+                    # 本地结果与选项对不上，改用大模型按选项原文选择
+                    answer = await get_answer_via_llm()
+            else:
+                answer = await get_answer_via_llm()
+
             if option_to_btn:
                 target_btn = option_to_btn.get(_normalize_option_text(answer))
                 if not target_btn:
