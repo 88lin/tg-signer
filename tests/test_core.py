@@ -990,6 +990,59 @@ async def test_wait_for_skips_consumed_message_placeholders(signer_factory):
 
 
 @pytest.mark.asyncio
+async def test_solve_arithmetic_local():
+    from tg_signer.core import _solve_arithmetic
+
+    text = "签到验证\n请在60秒内点击正确答案：\n87+45=？\n134 132 131 129"
+    assert _solve_arithmetic(text) == "132"
+    assert _solve_arithmetic("17 - 9 = ?") == "8"
+    assert _solve_arithmetic("12×3=?") == "36"
+    assert _solve_arithmetic("没有算式") is None
+    assert _solve_arithmetic("9 ÷ 0") is None
+
+
+@pytest.mark.asyncio
+async def test_reply_by_calculation_problem_falls_back_to_llm_when_local_answer_mismatches_buttons(
+    signer_factory,
+):
+    """本地算出的答案不在按钮选项里时，回退到大模型按选项原文选择。"""
+    signer = signer_factory()
+    ai_tools = SimpleNamespace(calculate_problem=AsyncMock(return_value="8 ✅"))
+    signer.get_ai_tools = lambda: ai_tools
+    signer.request_callback_answer = AsyncMock(return_value=None)
+    signer.send_message = AsyncMock(return_value=None)
+    message = SimpleNamespace(
+        id=99,
+        text=None,
+        caption="17 - 9 = ?",
+        chat=SimpleNamespace(id=123),
+        message_thread_id=1,
+        reply_markup=InlineKeyboardMarkup(
+            [
+                [
+                    InlineKeyboardButton("8 ✅", callback_data="answer:8"),
+                    InlineKeyboardButton("17 ✅", callback_data="answer:17"),
+                ]
+            ]
+        ),
+    )
+
+    ok = await signer._reply_by_calculation_problem(
+        ReplyByCalculationProblemAction(),
+        message,
+    )
+
+    assert ok is True
+    ai_tools.calculate_problem.assert_awaited_once()
+    signer.request_callback_answer.assert_awaited_once_with(
+        signer.app,
+        123,
+        99,
+        "answer:8",
+    )
+
+
+@pytest.mark.asyncio
 async def test_reply_by_calculation_problem_clicks_caption_inline_answer(
     signer_factory,
 ):
@@ -1020,12 +1073,8 @@ async def test_reply_by_calculation_problem_clicks_caption_inline_answer(
     )
 
     assert ok is True
-    ai_tools.calculate_problem.assert_awaited_once()
-    query = ai_tools.calculate_problem.await_args.args[0]
-    assert "17 - 9 = ?" in query
-    assert "可选答案" in query
-    assert '"8"' in query
-    assert '"17"' in query
+    # 纯数字算式应本地计算，不调用大模型
+    ai_tools.calculate_problem.assert_not_awaited()
     signer.request_callback_answer.assert_awaited_once_with(
         signer.app,
         123,
@@ -1102,7 +1151,7 @@ async def test_reply_by_calculation_problem_sends_caption_answer_without_keyboar
     )
 
     assert ok is True
-    ai_tools.calculate_problem.assert_awaited_once_with("17 - 9 = ?")
+    ai_tools.calculate_problem.assert_not_awaited()
     signer.send_message.assert_awaited_once_with(123, "8", message_thread_id=1)
     signer.request_callback_answer.assert_not_awaited()
 
