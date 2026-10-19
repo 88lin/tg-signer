@@ -997,8 +997,75 @@ async def test_solve_arithmetic_local():
     assert _solve_arithmetic(text) == "132"
     assert _solve_arithmetic("17 - 9 = ?") == "8"
     assert _solve_arithmetic("12×3=?") == "36"
+    # 小数四则（真实 xhgsgk_bot 案例）
+    assert _solve_arithmetic("0.7 + 5.4 = ?") == "6.1"
+    assert _solve_arithmetic("2.5×4=?") == "10"
+    assert _solve_arithmetic("6.6 - 5.4 = ?") == "1.2"
+    # 除法循环小数：数值正确即可
+    third = _solve_arithmetic("10 ÷ 3 = ?")
+    assert third is not None and third.startswith("3.33")
     assert _solve_arithmetic("没有算式") is None
     assert _solve_arithmetic("9 ÷ 0") is None
+
+
+def test_match_closest_option():
+    from tg_signer.core import _match_closest_option
+
+    buttons = {"6.6": 1, "6.1": 2, "5.8": 3, "6.4": 4}
+    assert _match_closest_option("6.1", buttons) == "6.1"
+    # '6.10' 数值上等于选项 '6.1'，应匹配到该按钮
+    assert _match_closest_option("6.10", buttons) == "6.1"
+    # 循环小数截断显示
+    assert _match_closest_option("3.333333333333333333333333333", {"3.33": 1, "3.5": 2}) == "3.33"
+    # 差距过大不匹配
+    assert _match_closest_option("12", buttons) is None
+    # 非数值选项
+    assert _match_closest_option("8", {"选项A": 1, "选项B": 2}) is None
+
+
+@pytest.mark.asyncio
+async def test_reply_by_calculation_problem_solves_decimal_quiz_locally(
+    signer_factory,
+):
+    """真实案例：xhgsgk_bot 小数验证题应本地解答并点击正确按钮，不调用大模型。"""
+    signer = signer_factory()
+    ai_tools = SimpleNamespace(calculate_problem=AsyncMock())
+    signer.get_ai_tools = lambda: ai_tools
+    signer.request_callback_answer = AsyncMock(return_value=None)
+    signer.send_message = AsyncMock(return_value=None)
+    message = SimpleNamespace(
+        id=99,
+        text="🔢 签到验证\n\n请在60秒内点击正确答案：\n\n0.7 + 5.4 = ?",
+        chat=SimpleNamespace(id=123),
+        message_thread_id=None,
+        reply_markup=InlineKeyboardMarkup(
+            [
+                [
+                    InlineKeyboardButton("6.6", callback_data="q:6.6"),
+                    InlineKeyboardButton("6.1", callback_data="q:6.1"),
+                ],
+                [
+                    InlineKeyboardButton("5.8", callback_data="q:5.8"),
+                    InlineKeyboardButton("6.4", callback_data="q:6.4"),
+                ],
+            ]
+        ),
+    )
+
+    ok = await signer._reply_by_calculation_problem(
+        ReplyByCalculationProblemAction(),
+        message,
+    )
+
+    assert ok is True
+    ai_tools.calculate_problem.assert_not_awaited()
+    signer.request_callback_answer.assert_awaited_once_with(
+        signer.app,
+        123,
+        99,
+        "q:6.1",
+    )
+    signer.send_message.assert_not_awaited()
 
 
 @pytest.mark.asyncio

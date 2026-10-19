@@ -9,6 +9,7 @@ import time
 from collections import Counter, defaultdict
 from datetime import datetime, timedelta
 from datetime import time as dt_time
+from decimal import Decimal, InvalidOperation
 from typing import (
     Annotated,
     Awaitable,
@@ -114,16 +115,23 @@ def _normalize_option_text(text: str) -> str:
     return "".join(text.split())
 
 
-_ARITHMETIC_RE = re.compile(r"(\d+)\s*([+\-×x*÷/])\s*(\d+)")
+_ARITHMETIC_RE = re.compile(r"(\d+(?:\.\d+)?)\s*([+\-×x*÷/])\s*(\d+(?:\.\d+)?)")
+
+
+def _fmt_decimal(d: "Decimal") -> str:
+    """Decimal 转普通字符串：去尾零、避免科学计数法。"""
+    return format(d.normalize(), "f")
 
 
 def _solve_arithmetic(text: str) -> Optional[str]:
-    """从文本中提取简单四则算式并本地计算，如 '87+45=?' -> '132'。"""
+    """从文本中提取四则算式并本地精确计算，如 '87+45=?' -> '132'、'0.7+5.4=?' -> '6.1'。"""
     m = _ARITHMETIC_RE.search(text)
     if not m:
         return None
-    a, op, b = int(m.group(1)), m.group(2), int(m.group(3))
     try:
+        a = Decimal(m.group(1))
+        b = Decimal(m.group(3))
+        op = m.group(2)
         if op == "+":
             result = a + b
         elif op == "-":
@@ -133,12 +141,31 @@ def _solve_arithmetic(text: str) -> Optional[str]:
         else:  # ÷ /
             if b == 0:
                 return None
-            result = a // b if a % b == 0 else a / b
-    except (ValueError, ZeroDivisionError):
+            result = a / b
+    except (InvalidOperation, ValueError):
         return None
-    if isinstance(result, float):
+    return _fmt_decimal(result)
+
+
+def _match_closest_option(answer: str, option_to_btn: dict) -> Optional[str]:
+    """答案与选项非字面相等时，按数值就近匹配（处理 '6.10'/'6.1'、除法循环小数等情况）。"""
+    try:
+        value = float(answer)
+    except ValueError:
         return None
-    return str(result)
+    best, best_diff = None, None
+    for opt in option_to_btn:
+        try:
+            opt_value = float(opt)
+        except ValueError:
+            continue
+        diff = abs(opt_value - value)
+        if best_diff is None or diff < best_diff:
+            best, best_diff = opt, diff
+    # 允许 1% 相对误差或 0.005 绝对误差（覆盖循环小数的截断显示）
+    if best is not None and best_diff <= max(abs(value) * 0.01, 0.005):
+        return best
+    return None
 
 
 def _get_inline_keyboard_buttons(message: Message) -> list[InlineKeyboardButton]:
@@ -1396,8 +1423,14 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
                     option_to_btn
                     and _normalize_option_text(answer) not in option_to_btn
                 ):
-                    # 本地结果与选项对不上，改用大模型按选项原文选择
-                    answer = await get_answer_via_llm()
+                    # 字面不相等时按数值就近匹配（小数尾零、循环小数截断等）
+                    closest = _match_closest_option(answer, option_to_btn)
+                    if closest is not None:
+                        self.log(f"按数值就近匹配选项: {closest}")
+                        answer = closest
+                    else:
+                        # 本地结果与选项对不上，改用大模型按选项原文选择
+                        answer = await get_answer_via_llm()
             else:
                 answer = await get_answer_via_llm()
 
